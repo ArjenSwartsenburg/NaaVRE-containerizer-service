@@ -16,7 +16,9 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.models.containerizer_payload import ContainerizerPayload
-from app.models.extractor_payload import ExtractorPayload
+from app.models.extractor_payload import ExtractorPayload, NotebookExtractorPayload
+from app.models.notebook_data import NotebookData
+from app.models.notebook_dependencies import NotebookDependencies
 from app.models.vl_config import VLConfig
 from app.services.base_image.base_image_tags import BaseImageTags
 from app.services.cell_extractor.extractor import DummyExtractor
@@ -232,6 +234,38 @@ def extract_cell(access_token: Annotated[dict, Depends(valid_access_token)],
             json.dump(test_resource, f, indent=4)
         f.close()
     return cell
+
+
+@app.post('/extract_notebook')
+def extract_notebook(
+        access_token: Annotated[dict, Depends(valid_access_token)],
+        extractor_payload: NotebookExtractorPayload):
+    user_name = access_token['preferred_username']
+    all_dependencies: dict[tuple, dict] = {}
+    for i, cell in enumerate(extractor_payload.data.notebook.cells):
+        if cell.cell_type != 'code':
+            continue
+        cell_data = NotebookData(
+            cell_index=i,
+            kernel=extractor_payload.data.kernel,
+            notebook=extractor_payload.data.notebook,
+            user_name=user_name,
+        )
+        cell_payload = ExtractorPayload(
+            virtual_lab=extractor_payload.virtual_lab,
+            data=cell_data,
+        )
+        try:
+            extractor = _get_extractor(cell_payload)
+            extracted_cell = extractor.get_cell()
+        except Exception:
+            logging.debug('Failed to extract cell %d, skipping', i,
+                          exc_info=True)
+            continue
+        for dep in (extracted_cell.dependencies or []):
+            key = (dep.get('name'), dep.get('asname'), dep.get('module'))
+            all_dependencies[key] = dep
+    return NotebookDependencies(dependencies=list(all_dependencies.values()))
 
 
 @app.post('/containerize')
