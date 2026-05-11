@@ -48,8 +48,7 @@ class Containerizer():
             module_name_mapping=get_module_name_mapping
             (self.module_mapping_url)
         )
-        return template_conda.render(base_image=self.cell.base_container_image,
-                                     conda_deps=list(
+        return template_conda.render(conda_deps=list(
                                          mapped_dependencies[
                                              'conda_dependencies']),
                                      pip_deps=list(mapped_dependencies[

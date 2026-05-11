@@ -12,13 +12,13 @@ import jwt
 import requests
 import uvicorn
 from cachetools import TTLCache
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.models.containerizer_payload import ContainerizerPayload
 from app.models.extractor_payload import ExtractorPayload, NotebookExtractorPayload
 from app.models.notebook_data import NotebookData
-from app.models.notebook_dependencies import NotebookDependencies
+from app.models.workflow_cell import Cell
 from app.models.vl_config import VLConfig
 from app.services.base_image.base_image_tags import BaseImageTags
 from app.services.cell_extractor.extractor import DummyExtractor
@@ -140,6 +140,18 @@ def _get_github_service(vl_conf: VLConfig):
     return GithubService(vl_conf)
 
 
+def _is_r_kernel(kernel: str) -> bool:
+    kl = kernel.lower()
+    return kl in ('r', 'irkernel') or kl.startswith('ir')
+
+
+def _is_python_kernel(kernel: str) -> bool:
+    kl = kernel.lower()
+    return ('python' in kl or 'ipython' in kl
+            or kl.endswith('-py') or kl.endswith('_py')
+            or kl == 'py')
+
+
 def _get_extractor(extractor_payload: ExtractorPayload):
     extractor = None
     notebook = extractor_payload.data.notebook
@@ -174,17 +186,17 @@ def _get_extractor(extractor_payload: ExtractorPayload):
         # dummy extractor for non-code cells (e.g. markdown)
         extractor = DummyExtractor(extractor_payload.data,
                                    vl_settings.base_image_tags_url)
-    elif 'r' in kernel.lower():
+    elif _is_r_kernel(kernel):
         extractor = RHeaderExtractor(extractor_payload.data,
                                      vl_settings.base_image_tags_url)
-    elif 'python' in kernel.lower() or 'ipython' in kernel.lower():
+    elif _is_python_kernel(kernel):
         extractor = PyHeaderExtractor(extractor_payload.data,
                                       vl_settings.base_image_tags_url)
     if not extractor.is_complete():
-        if kernel.lower() == 'irkernel':
+        if _is_r_kernel(kernel):
             code_extractor = RExtractor(extractor_payload.data,
                                         vl_settings.base_image_tags_url)
-        elif kernel == 'ipython' or kernel == 'python':
+        elif _is_python_kernel(kernel):
             code_extractor = PyExtractor(extractor_payload.data,
                                          vl_settings.base_image_tags_url)
         else:
@@ -241,31 +253,62 @@ def extract_notebook(
         access_token: Annotated[dict, Depends(valid_access_token)],
         extractor_payload: NotebookExtractorPayload):
     user_name = access_token['preferred_username']
+    kernel = extractor_payload.data.kernel
+    vl_settings = settings.get_vl_config(extractor_payload.virtual_lab)
+    if vl_settings is None:
+        raise HTTPException(status_code=400,
+                            detail='vl_settings for: ' +
+                            extractor_payload.virtual_lab + ' not found')
     all_dependencies: dict[tuple, dict] = {}
-    for i, cell in enumerate(extractor_payload.data.notebook.cells):
-        if cell.cell_type != 'code':
+    for i, nb_cell in enumerate(extractor_payload.data.notebook.cells):
+        if nb_cell.cell_type != 'code':
             continue
         cell_data = NotebookData(
             cell_index=i,
-            kernel=extractor_payload.data.kernel,
+            kernel=kernel,
             notebook=extractor_payload.data.notebook,
             user_name=user_name,
         )
-        cell_payload = ExtractorPayload(
-            virtual_lab=extractor_payload.virtual_lab,
-            data=cell_data,
-        )
         try:
-            extractor = _get_extractor(cell_payload)
-            extracted_cell = extractor.get_cell()
+            if _is_r_kernel(kernel):
+                extractor = RHeaderExtractor(cell_data, base_image_tags_url='')
+                if not extractor.is_complete():
+                    code_extractor = RExtractor(cell_data,
+                                                base_image_tags_url='')
+                    extractor.add_missing_values(code_extractor)
+            elif _is_python_kernel(kernel):
+                extractor = PyHeaderExtractor(cell_data, base_image_tags_url='')
+                if not extractor.is_complete():
+                    code_extractor = PyExtractor(cell_data,
+                                                 base_image_tags_url='')
+                    extractor.add_missing_values(code_extractor)
+            else:
+                logging.debug('Unsupported kernel %s for cell %d, skipping',
+                              kernel, i)
+                continue
         except Exception:
             logging.debug('Failed to extract cell %d, skipping', i,
                           exc_info=True)
             continue
-        for dep in (extracted_cell.dependencies or []):
+        for dep in (extractor.cell_dependencies or []):
             key = (dep.get('name'), dep.get('asname'), dep.get('module'))
             all_dependencies[key] = dep
-    return NotebookDependencies(dependencies=list(all_dependencies.values()))
+
+    normalized_kernel = 'IRkernel' if _is_r_kernel(kernel) else 'ipython'
+    cell = Cell(
+        title='notebook',
+        base_container_image={},
+        dependencies=list(all_dependencies.values()),
+        kernel=normalized_kernel,
+        original_source='',
+    )
+    containerizer = (
+        RContainerizer if _is_r_kernel(kernel) else PyContainerizer
+    )(cell, vl_settings.module_mapping_url)
+    return Response(
+        content=containerizer.build_environment(),
+        media_type='text/plain',
+    )
 
 
 @app.post('/containerize')
@@ -360,4 +403,5 @@ def get_status(
 
 
 if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=8000, log_level='trace')
+    port = int(os.getenv('APP_PORT', 8001))
+    uvicorn.run(app, host='0.0.0.0', port=port, log_level='trace')

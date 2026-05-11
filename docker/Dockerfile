@@ -30,5 +30,7 @@ WORKDIR /code
 
 COPY ./app /code/app
 
-CMD ["fastapi", "run", "app/main.py", "--port", "8000"]
+ENV APP_PORT=8001
+
+CMD fastapi run app/main.py --port ${APP_PORT}
 # CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--log-level", "trace"]
