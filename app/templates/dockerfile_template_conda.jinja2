@@ -1,4 +1,12 @@
 FROM {{ base_image.build }} AS build
+{% if environment_url %}
+USER root
+RUN mkdir /venv && \
+    wget -qO /tmp/env.tar.gz "{{ environment_url }}" && \
+    tar xzf /tmp/env.tar.gz -C /venv && \
+    rm /tmp/env.tar.gz
+RUN /venv/bin/conda-unpack
+{% else %}
 COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yaml .
 RUN micromamba install -y -n venv -f environment.yaml
 ARG MAMBA_DOCKERFILE_ACTIVATE=1
@@ -7,6 +15,7 @@ RUN conda-pack -p /opt/conda/envs/venv -o /tmp/env.tar && \
     mkdir /venv && cd /venv && tar xf /tmp/env.tar && \
     rm /tmp/env.tar
 RUN /venv/bin/conda-unpack
+{% endif %}
 
 {% if title.startswith('visualize-')%}
 FROM jupyter/base-notebook AS runtime

@@ -168,3 +168,5 @@ cython_debug/
 /dev-setup.env
 /NaaVRE-helm/
 /NaaVRE-helm/
+configuration_dev.json
+dev-example_dev.env

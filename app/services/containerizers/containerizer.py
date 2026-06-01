@@ -58,12 +58,13 @@ class Containerizer():
     def is_standard_module(self, module_name):
         pass
 
-    def build_docker(self):
+    def build_docker(self, environment_url=None):
         template_dockerfile = self.template_env.get_template(
             self.dockerfile_template)
         return template_dockerfile.render(
             title=self.cell.title,
-            base_image=self.cell.base_container_image)
+            base_image=self.cell.base_container_image,
+            environment_url=environment_url)
 
     @abstractmethod
     def map_dependencies(self, dependencies=None, module_name_mapping=None):

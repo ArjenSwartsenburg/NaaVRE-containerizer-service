@@ -330,7 +330,8 @@ def containerize(access_token: Annotated[dict, Depends(valid_access_token)],
     commit_list.append({'contents': environment_contents,
                         'path': containerize_payload.cell.title,
                         'file_name': 'environment.yaml'})
-    docker_template = conteinerizer.build_docker()
+    docker_template = conteinerizer.build_docker(
+        environment_url=containerize_payload.environment_url)
     commit_list.append({'contents': docker_template,
                         'path': containerize_payload.cell.title,
                         'file_name': 'Dockerfile'})
