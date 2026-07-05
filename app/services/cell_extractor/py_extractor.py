@@ -15,6 +15,63 @@ from ..repositories.github_service import logger
 from ...models.notebook_data import NotebookData
 
 
+def scrub_ipython_magics(source: str) -> str:
+    """Neutralise IPython line/cell magics and shell escapes so the source is
+    parseable as plain Python.
+
+    Notebook cells routinely contain ``%matplotlib inline``, ``%timeit ...``,
+    ``!pip install`` and ``foo?`` help syntax, none of which is valid Python.
+    ``ast.parse`` (and pytype) raise ``SyntaxError`` on them, which previously
+    lost the whole notebook's imports. Offending lines are blanked (line count
+    preserved so error line numbers stay meaningful); a cell magic (``%%...``)
+    blanks the remainder of the cell, whose body is not necessarily Python.
+    """
+    out = []
+    in_cell_magic = False
+    for line in source.splitlines():
+        stripped = line.lstrip()
+        if in_cell_magic:
+            out.append('')
+            continue
+        if stripped.startswith('%%'):
+            in_cell_magic = True
+            out.append('')
+        elif stripped.startswith(('%', '!')):
+            out.append('')
+        elif stripped.rstrip().endswith('?') and not stripped.startswith('#'):
+            out.append('')
+        else:
+            out.append(line)
+    return '\n'.join(out)
+
+
+def extract_notebook_imports(notebook) -> list[dict]:
+    """Extract the complete set of top-level imports from a notebook.
+
+    Parses each code cell independently so one unparseable cell (a malformed
+    magic, non-Python content) only costs that cell, never the whole
+    notebook's import list. Uses a plain AST walk — imports are pure syntax
+    and need no type inference — and returns dependency records in the shape
+    the containerizer expects (``{'name', 'asname', 'module'}``).
+    """
+    imports: dict = {}
+    for cell in notebook.cells:
+        if cell.cell_type != 'code':
+            continue
+        source = cell.source
+        if isinstance(source, list):
+            source = '\n'.join(source)
+        source = scrub_ipython_magics(source)
+        try:
+            visitor = Visitor()
+            visitor.visit(ast.parse(source))
+            imports.update(visitor.imports)
+        except SyntaxError as e:
+            logger.warning('skipping unparseable cell during import '
+                           'extraction: %s', e)
+    return list(imports.values())
+
+
 class PyExtractor(Extractor):
     # notebook_sources: list
     notebook_variables: dict
@@ -26,6 +83,14 @@ class PyExtractor(Extractor):
 
     def __init__(self, notebook_data: NotebookData, base_image_tags_url: str):
         notebook = notebook_data.notebook
+        # Strip IPython magics in place so both the notebook-wide extraction
+        # below and the base class's per-cell parsing (super().__init__) see
+        # valid Python. Idempotent, so re-running on the same notebook is safe.
+        for nb_cell in notebook.cells:
+            if nb_cell.cell_type == 'code':
+                if isinstance(nb_cell.source, list):
+                    nb_cell.source = '\n'.join(nb_cell.source)
+                nb_cell.source = scrub_ipython_magics(nb_cell.source)
         notebook_sources = []
         for nb_cell in notebook.cells:
             if nb_cell.cell_type == 'code' and len(nb_cell.source) > 0 and \
@@ -35,9 +100,12 @@ class PyExtractor(Extractor):
             '\n'.join(notebook_sources),
             infer_types=True,
         )
+        # Imports are pure syntax — a plain AST walk finds them all. Don't
+        # route this through pytype: type inference is not needed here and
+        # its failures must never cost us the notebook's import list.
         notebook_visitor = (
             self.__parse_code('\n'.join(notebook_sources),
-                              infer_types=True,
+                              infer_types=False,
                               ))
         self.notebook_imports = notebook_visitor.imports
         self.notebook_configurations = self.__extract_configurations(
@@ -175,8 +243,20 @@ class PyExtractor(Extractor):
     @staticmethod
     @lru_cache
     def __get_annotated_ast(cell_source):
-        return annotate_ast.annotate_source(
-            cell_source, ast, pytype_config.Options.create())
+        try:
+            return annotate_ast.annotate_source(
+                cell_source, ast, pytype_config.Options.create())
+        except Exception as e:
+            # pytype crashes on some valid real-world code (e.g. internal
+            # "Passing binding from different program" errors). Type
+            # inference is best-effort: fall back to a plain AST, which
+            # keeps imports and undefined-variable extraction working and
+            # only loses type annotations (handled by the AttributeError
+            # guard in __extract_variables).
+            logging.getLogger(__name__).warning(
+                'pytype annotation failed, falling back to plain AST '
+                'without type inference: %s', e)
+            return ast.parse(cell_source)
 
     def __convert_type_annotation(self, type_annotation):
         """ Convert type annotation to the ones supported for cell interfaces

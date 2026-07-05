@@ -22,7 +22,8 @@ from app.models.workflow_cell import Cell
 from app.models.vl_config import VLConfig
 from app.services.base_image.base_image_tags import BaseImageTags
 from app.services.cell_extractor.extractor import DummyExtractor
-from app.services.cell_extractor.py_extractor import PyExtractor
+from app.services.cell_extractor.py_extractor import (
+    PyExtractor, extract_notebook_imports)
 from app.services.cell_extractor.py_header_extractor import PyHeaderExtractor
 from app.services.cell_extractor.r_extractor import RExtractor
 from app.services.cell_extractor.r_header_extractor import RHeaderExtractor
@@ -260,15 +261,24 @@ def extract_notebook(
                             detail='vl_settings for: ' +
                             extractor_payload.virtual_lab + ' not found')
     all_dependencies: dict[tuple, dict] = {}
-    for i, nb_cell in enumerate(extractor_payload.data.notebook.cells):
+    failed_cells: list[int] = []
+
+    def _add_dependencies(deps):
+        for dep in (deps or []):
+            key = (dep.get('name'), dep.get('asname'), dep.get('module'))
+            all_dependencies[key] = dep
+
+    notebook = extractor_payload.data.notebook
+    for i, nb_cell in enumerate(notebook.cells):
         if nb_cell.cell_type != 'code':
             continue
         cell_data = NotebookData(
             cell_index=i,
             kernel=kernel,
-            notebook=extractor_payload.data.notebook,
+            notebook=notebook,
             user_name=user_name,
         )
+        # Take any dependencies declared explicitly in a NaaVRE cell header.
         try:
             if _is_r_kernel(kernel):
                 extractor = RHeaderExtractor(cell_data, base_image_tags_url='')
@@ -276,23 +286,22 @@ def extract_notebook(
                     code_extractor = RExtractor(cell_data,
                                                 base_image_tags_url='')
                     extractor.add_missing_values(code_extractor)
+                _add_dependencies(extractor.cell_dependencies)
             elif _is_python_kernel(kernel):
                 extractor = PyHeaderExtractor(cell_data, base_image_tags_url='')
-                if not extractor.is_complete():
-                    code_extractor = PyExtractor(cell_data,
-                                                 base_image_tags_url='')
-                    extractor.add_missing_values(code_extractor)
+                _add_dependencies(extractor.cell_dependencies)
             else:
                 logging.debug('Unsupported kernel %s for cell %d, skipping',
                               kernel, i)
-                continue
         except Exception:
-            logging.debug('Failed to extract cell %d, skipping', i,
-                          exc_info=True)
-            continue
-        for dep in (extractor.cell_dependencies or []):
-            key = (dep.get('name'), dep.get('asname'), dep.get('module'))
-            all_dependencies[key] = dep
+            logging.warning('Header extraction failed for cell %d, skipping',
+                            i, exc_info=True)
+            failed_cells.append(i)
+
+    # Extract the notebook's code imports resiliently (per-cell, magic-aware,
+    # no pytype). R is handled entirely by its header/code extractors above.
+    if _is_python_kernel(kernel):
+        _add_dependencies(extract_notebook_imports(notebook))
 
     normalized_kernel = 'IRkernel' if _is_r_kernel(kernel) else 'ipython'
     cell = Cell(
@@ -305,9 +314,19 @@ def extract_notebook(
     containerizer = (
         RContainerizer if _is_r_kernel(kernel) else PyContainerizer
     )(cell, vl_settings.module_mapping_url)
+    headers = {}
+    if failed_cells:
+        # Surface extraction gaps to the caller instead of failing silently —
+        # an env built from partial extraction looks valid but may be missing
+        # dependencies.
+        headers['X-Extraction-Warnings'] = (
+            'extraction failed for cell(s) '
+            + ','.join(str(i) for i in failed_cells)
+        )
     return Response(
         content=containerizer.build_environment(),
         media_type='text/plain',
+        headers=headers,
     )
 
 

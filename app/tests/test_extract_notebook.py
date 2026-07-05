@@ -1,123 +1,180 @@
-import copy
-import json
-import os
+"""Tests for /extract_notebook dependency extraction.
 
-from fastapi.testclient import TestClient
+Covers the robustness fixes that raise the extraction success rate on
+real-world notebooks:
+  - IPython magics / shell escapes no longer break parsing,
+  - a single unparseable cell no longer zeroes the whole notebook,
+  - import extraction is independent of pytype,
+  - relative/local imports and stdlib are excluded,
+  - unmapped third-party packages route to pip, mapped ones to conda.
 
-from app.main import app
-from app.models.notebook_dependencies import NotebookDependencies
+The extraction and routing logic is unit-tested directly (no auth/network),
+plus one endpoint test with auth and the module mapping stubbed out.
+"""
+import nbformat
+import yaml
 
-if os.path.exists('resources'):
-    base_path = 'resources'
-elif os.path.exists('app/tests/resources/'):
-    base_path = 'app/tests/resources/'
-client = TestClient(app)
+from app.models.workflow_cell import Cell
+from app.models.notebook_data import NotebookData
+from app.services.cell_extractor.py_extractor import (
+    extract_notebook_imports, scrub_ipython_magics, PyExtractor)
+from app.services.containerizers.py_containerizer import PyContainerizer
 
-
-def _load_notebook_payload(cell_dir_name):
-    """Load a notebook and its extract payload from a test resource directory."""
-    cell_dir = os.path.join(base_path, 'notebook_cells', cell_dir_name)
-    notebook_path = os.path.join(cell_dir, 'notebook.ipynb')
-    with open(notebook_path) as f:
-        notebook = json.load(f)
-    payload_path = os.path.join(cell_dir, 'payload_extract_cell.json')
-    with open(payload_path) as f:
-        cell_payload = json.load(f)
-    # Build a NotebookExtractorPayload: same virtual_lab and kernel, but no
-    # cell_index — the endpoint iterates over all cells itself.
-    payload = {
-        'virtual_lab': cell_payload['virtual_lab'],
-        'data': {
-            'kernel': cell_payload['data']['kernel'],
-            'notebook': notebook,
-        },
-    }
-    return payload
+MODULE_MAPPING = {
+    'conda': {'sklearn': 'scikit-learn', 'cv2': 'opencv', 'torch': 'pytorch'},
+    'pip': {'yaml': 'pyyaml'},
+    'r': {},
+}
 
 
-def test_extract_notebook_returns_200():
-    """Endpoint returns 200 for a valid notebook."""
-    payload = _load_notebook_payload('create-file-user')
-    auth_token = os.getenv('AUTH_TOKEN')
-    response = client.post(
-        '/extract_notebook/',
-        headers={'Authorization': 'Bearer ' + auth_token},
-        json=payload,
+def _notebook(*cell_sources):
+    nb = nbformat.v4.new_notebook()
+    nb.cells = [nbformat.v4.new_code_cell(s) for s in cell_sources]
+    return nb
+
+
+def _import_names(notebook):
+    return {(d.get('module') or d.get('name')).split('.')[0]
+            for d in extract_notebook_imports(notebook)}
+
+
+# --- scrub_ipython_magics -------------------------------------------------
+
+def test_scrub_line_magic_and_shell():
+    src = 'import numpy as np\n%matplotlib inline\n!pip install foo\nx = np.zeros(3)'
+    scrubbed = scrub_ipython_magics(src)
+    assert '%matplotlib' not in scrubbed
+    assert '!pip' not in scrubbed
+    assert 'import numpy as np' in scrubbed
+    assert 'x = np.zeros(3)' in scrubbed
+    # line count preserved so error line numbers stay meaningful
+    assert len(scrubbed.splitlines()) == len(src.splitlines())
+
+
+def test_scrub_cell_magic_blanks_rest_of_cell():
+    src = '%%bash\nfor i in 1 2 3; do echo $i; done'
+    scrubbed = scrub_ipython_magics(src)
+    assert scrubbed.strip() == ''
+
+
+def test_scrub_help_syntax():
+    assert scrub_ipython_magics('numpy.array?').strip() == ''
+
+
+# --- extract_notebook_imports --------------------------------------------
+
+def test_imports_survive_magics():
+    nb = _notebook(
+        'import pandas as pd\n%matplotlib inline',
+        'import neurokit2 as nk\n%timeit nk.ecg_simulate()',
     )
+    assert _import_names(nb) == {'pandas', 'neurokit2'}
+
+
+def test_one_bad_cell_does_not_zero_the_notebook():
+    # A malformed cell (a stray magic with no % marker) must not cost the
+    # imports found in the other cells.
+    nb = _notebook(
+        'import jax\nimport numpy as np',
+        'timeit -n 5 foo(bar)',  # invalid Python, not a recognizable magic
+    )
+    assert _import_names(nb) == {'jax', 'numpy'}
+
+
+def test_from_imports_use_module_name():
+    nb = _notebook('from sklearn.model_selection import train_test_split')
+    deps = extract_notebook_imports(nb)
+    assert any(d['module'] == 'sklearn.model_selection' for d in deps)
+
+
+def test_relative_imports_excluded():
+    nb = _notebook('from . import helpers\nfrom ..pkg import thing\nimport requests')
+    assert _import_names(nb) == {'requests'}
+
+
+def test_extraction_is_pytype_independent():
+    # extract_notebook_imports uses a plain AST walk; it must not depend on
+    # pytype succeeding. Constructing a full PyExtractor (which does invoke
+    # pytype) must also still yield imports thanks to the fallback.
+    nb = _notebook('import scanpy\nx: int = 1\ny = x + 1')
+    assert 'scanpy' in _import_names(nb)
+    ext = PyExtractor(NotebookData(cell_index=0, kernel='ipython',
+                                   notebook=nb, user_name='u'),
+                      base_image_tags_url='')
+    assert 'scanpy' in {v['name'].split('.')[0]
+                        for v in ext.notebook_imports.values()}
+
+
+# --- map_dependencies (conda vs pip routing) ------------------------------
+
+def _route(notebook):
+    deps = extract_notebook_imports(notebook)
+    cell = Cell(title='notebook', base_container_image={}, dependencies=deps,
+                kernel='ipython', original_source='')
+    routed = PyContainerizer(cell).map_dependencies(deps, MODULE_MAPPING)
+    return sorted(routed['conda_dependencies']), sorted(routed['pip_dependencies'])
+
+
+def test_unmapped_package_routes_to_pip():
+    conda, pip = _route(_notebook('import neurokit2'))
+    assert 'neurokit2' in pip
+    assert 'neurokit2' not in conda
+
+
+def test_mapped_package_routes_to_conda_with_renamed_name():
+    conda, pip = _route(_notebook('import sklearn'))
+    assert 'scikit-learn' in conda
+
+
+def test_stdlib_is_dropped():
+    conda, pip = _route(_notebook('import os\nimport sys\nimport json\nimport requests'))
+    assert conda == []
+    assert pip == ['requests']
+
+
+def test_pip_mapping_entry_routes_to_pip_with_renamed_name():
+    conda, pip = _route(_notebook('import yaml'))
+    assert 'pyyaml' in pip
+
+
+# --- endpoint (auth + module mapping stubbed) -----------------------------
+
+def test_extract_notebook_endpoint_yaml(monkeypatch):
+    import pytest
+    from fastapi.testclient import TestClient
+    try:
+        import app.main as main_module
+    except Exception as e:
+        # app.main imports rpy2, which needs an R installation on PATH/R_HOME.
+        # The Python extraction path under test doesn't use R; skip the
+        # endpoint-level assertion where R is unavailable (the extraction and
+        # routing logic is fully covered by the unit tests above).
+        pytest.skip(f'app.main import requires R: {e}')
+    import app.services.containerizers.containerizer as containerizer_module
+
+    main_module.app.dependency_overrides[main_module.valid_access_token] = (
+        lambda: {'preferred_username': 'tester'})
+    monkeypatch.setattr(
+        main_module.settings, 'get_vl_config',
+        lambda vl: type('VL', (), {'module_mapping_url': 'stub'})())
+    monkeypatch.setattr(
+        containerizer_module, 'get_module_name_mapping',
+        lambda url: MODULE_MAPPING)
+
+    nb = _notebook('import neurokit2 as nk\n%matplotlib inline',
+                   'from sklearn.model_selection import train_test_split')
+    payload = {'virtual_lab': 'test-virtual-lab-1',
+               'data': {'kernel': 'ipython', 'notebook': nb}}
+    try:
+        response = TestClient(main_module.app).post(
+            '/extract_notebook',
+            headers={'Authorization': 'Bearer x'}, json=payload)
+    finally:
+        main_module.app.dependency_overrides.clear()
+
     assert response.status_code == 200, response.text
-
-
-def test_extract_notebook_returns_dependencies():
-    """Dependencies are extracted and deduplicated across all code cells."""
-    payload = _load_notebook_payload('create-file-user')
-    auth_token = os.getenv('AUTH_TOKEN')
-    response = client.post(
-        '/extract_notebook/',
-        headers={'Authorization': 'Bearer ' + auth_token},
-        json=payload,
-    )
-    assert response.status_code == 200, response.text
-    result = NotebookDependencies.model_validate(response.json())
-    assert result.dependencies is not None
-    # The create-file-user notebook imports os — verify it is present
-    dep_names = [d['name'] for d in result.dependencies]
-    assert 'os' in dep_names, (
-        f"Expected 'os' in dependencies, got: {dep_names}"
-    )
-    # Deduplication: no two entries share the same (name, asname, module) tuple
-    keys = [
-        (d.get('name'), d.get('asname'), d.get('module'))
-        for d in result.dependencies
-    ]
-    assert len(keys) == len(set(keys)), (
-        f"Duplicate dependencies found: {result.dependencies}"
-    )
-
-
-def test_extract_notebook_skips_non_code_cells():
-    """Non-code (markdown/raw) cells are skipped without error."""
-    payload = _load_notebook_payload('create-file-user')
-    # Inject a markdown cell at the start of the notebook
-    markdown_cell = {
-        'cell_type': 'markdown',
-        'metadata': {},
-        'source': '# This is a markdown cell',
-    }
-    payload['data']['notebook']['cells'].insert(0, markdown_cell)
-    auth_token = os.getenv('AUTH_TOKEN')
-    response = client.post(
-        '/extract_notebook/',
-        headers={'Authorization': 'Bearer ' + auth_token},
-        json=payload,
-    )
-    assert response.status_code == 200, response.text
-    result = NotebookDependencies.model_validate(response.json())
-    assert result.dependencies is not None
-
-
-def test_extract_notebook_partial_results_on_cell_failure():
-    """If one cell fails extraction, others still contribute results."""
-    payload = _load_notebook_payload('create-file-user')
-    # Inject a malformed code cell that will fail extraction
-    broken_cell = {
-        'cell_type': 'code',
-        'metadata': {},
-        'outputs': [],
-        'execution_count': None,
-        'source': '{{{{invalid python source}}}}',
-    }
-    original_cells = payload['data']['notebook']['cells']
-    payload['data']['notebook']['cells'] = [broken_cell] + original_cells
-    auth_token = os.getenv('AUTH_TOKEN')
-    response = client.post(
-        '/extract_notebook/',
-        headers={'Authorization': 'Bearer ' + auth_token},
-        json=payload,
-    )
-    # Should still succeed with partial results from the valid cells
-    assert response.status_code == 200, response.text
-    result = NotebookDependencies.model_validate(response.json())
-    dep_names = [d['name'] for d in (result.dependencies or [])]
-    assert 'os' in dep_names, (
-        f"Expected partial results with 'os', got: {dep_names}"
-    )
+    env = yaml.safe_load(response.text)
+    conda = env.get('dependencies', [])
+    pip = next((d['pip'] for d in conda if isinstance(d, dict) and 'pip' in d), [])
+    assert 'scikit-learn' in conda      # mapped -> conda
+    assert 'neurokit2' in pip           # unmapped -> pip

@@ -1,9 +1,7 @@
-import importlib
 import json
 import sys
 from abc import ABC
 
-import distro
 import nbformat as nbf
 
 from app.models.workflow_cell import Cell
@@ -28,17 +26,11 @@ class PyContainerizer(Containerizer, ABC):
         return json.dumps(nb, indent=2)
 
     def is_standard_module(self, module_name=None):
-        if module_name in sys.builtin_module_names:
-            return True
-        installation_path = None
-        try:
-            installation_path = importlib.import_module(module_name).__file__
-        except ImportError:
-            return False
-        linux_os = distro.id()
-        return 'dist-packages' not in installation_path \
-            if linux_os == 'Ubuntu' else ('site-packages' not in
-                                          installation_path)
+        # sys.stdlib_module_names lists the standard library by name, with no
+        # need to import the candidate module (importing had side effects and
+        # misclassified anything not installed in the service's own env).
+        return (module_name in sys.stdlib_module_names
+                or module_name in sys.builtin_module_names)
 
     def map_dependencies(self, dependencies=None, module_name_mapping=None):
         conda_deps = set()
@@ -56,9 +48,15 @@ class PyContainerizer(Containerizer, ABC):
             elif module_name in module_name_mapping['pip']:
                 pip_deps.add(module_name_mapping['pip'][module_name])
             elif not self.is_standard_module(module_name):
-                conda_deps.add(module_name)
+                # Unmapped third-party packages default to pip: arbitrary
+                # notebook imports come from PyPI far more often than from
+                # conda channels, and a name unknown to conda fails the
+                # whole environment solve, whereas a bad pip package fails
+                # in isolation. Conda-preferred packages belong in the
+                # module mapping's "conda" section.
+                pip_deps.add(module_name)
         conda_deps.discard(None)
-        conda_deps.discard(None)
+        pip_deps.discard(None)
         return {'conda_dependencies': conda_deps, 'pip_dependencies': pip_deps}
 
     def build_script(self):

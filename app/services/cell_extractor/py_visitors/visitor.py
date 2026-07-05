@@ -141,7 +141,13 @@ class Visitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node):
-        # For relative imports (e.g., from os import path)s
+        # For from-imports (e.g., from os import path)
+        if node.level:
+            # Relative import (from . import x, from ..pkg import y): refers
+            # to a module local to the notebook's repository, never an
+            # installable package.
+            self.generic_visit(node)
+            return
         for alias in node.names:
             code_import = {
                 alias.name: {'module': node.module, 'asname': alias.asname,
