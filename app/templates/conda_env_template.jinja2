@@ -2,6 +2,9 @@ name: venv
 channels:
   - conda-forge
 dependencies:
+{% if python_version %}
+  - python={{ python_version }}
+{% endif %}
   - pip
   - nbconvert
 {% for d in conda_deps %}

@@ -40,7 +40,12 @@ class Containerizer():
     def extract_notebook(self):
         pass
 
-    def build_environment(self):
+    def build_environment(self, python_version: str | None = None):
+        # ``python_version`` pins the interpreter in the rendered spec. Left
+        # unset (the default, and the case for R environments) nothing is
+        # pinned; PyContainerizer overrides the default because an
+        # unconstrained Python solves to the newest interpreter, for which
+        # many notebook dependencies have no wheels and fail to build.
         template_conda = self.template_env.get_template(
             self.template_conda_env)
         mapped_dependencies = self.map_dependencies(
@@ -48,7 +53,8 @@ class Containerizer():
             module_name_mapping=get_module_name_mapping
             (self.module_mapping_url)
         )
-        return template_conda.render(conda_deps=list(
+        return template_conda.render(python_version=python_version,
+                                     conda_deps=list(
                                          mapped_dependencies[
                                              'conda_dependencies']),
                                      pip_deps=list(mapped_dependencies[
