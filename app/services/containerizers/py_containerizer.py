@@ -8,6 +8,26 @@ from app.models.workflow_cell import Cell
 from app.services.containerizers.containerizer import Containerizer
 
 
+# Import name → PyPI package name, for the common cases where they differ.
+# Used only as a fallback when the (remote) module mapping doesn't cover the
+# import: without it these route to pip under their import name and fail the
+# install outright (e.g. a pip dependency literally named "yaml" — the package
+# is "pyyaml"). The remote mapping still takes precedence.
+_PIP_NAME_FALLBACKS = {
+    'yaml': 'pyyaml',
+    'cv2': 'opencv-python',
+    'sklearn': 'scikit-learn',
+    'skimage': 'scikit-image',
+    'PIL': 'pillow',
+    'bs4': 'beautifulsoup4',
+    'Bio': 'biopython',
+    'dateutil': 'python-dateutil',
+    'OpenSSL': 'pyopenssl',
+    'attr': 'attrs',
+    'yaml_include': 'pyyaml-include',
+}
+
+
 class PyContainerizer(Containerizer, ABC):
 
     def __init__(self, cell: Cell, module_mapping_url=None):
@@ -24,6 +44,12 @@ class PyContainerizer(Containerizer, ABC):
         cells = [nbf.v4.new_code_cell(self.cell.original_source)]
         nb.cells.extend(cells)
         return json.dumps(nb, indent=2)
+
+    def build_environment(self, python_version: str = '3.11'):
+        # Pin Python for Python cells: an unconstrained spec resolves to the
+        # newest interpreter, for which much of the corpus's older/C-extension
+        # dependencies have no wheels and fail to build from source.
+        return super().build_environment(python_version=python_version)
 
     def is_standard_module(self, module_name=None):
         # sys.stdlib_module_names lists the standard library by name, with no
@@ -53,8 +79,9 @@ class PyContainerizer(Containerizer, ABC):
                 # conda channels, and a name unknown to conda fails the
                 # whole environment solve, whereas a bad pip package fails
                 # in isolation. Conda-preferred packages belong in the
-                # module mapping's "conda" section.
-                pip_deps.add(module_name)
+                # module mapping's "conda" section. A small fallback fixes the
+                # common import-vs-package name mismatches (yaml→pyyaml, …).
+                pip_deps.add(_PIP_NAME_FALLBACKS.get(module_name, module_name))
         conda_deps.discard(None)
         pip_deps.discard(None)
         return {'conda_dependencies': conda_deps, 'pip_dependencies': pip_deps}

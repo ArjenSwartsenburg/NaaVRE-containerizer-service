@@ -45,14 +45,76 @@ def scrub_ipython_magics(source: str) -> str:
     return '\n'.join(out)
 
 
+# IPython magics that imply a package without an ``import`` statement.
+# ``%pylab`` pulls matplotlib *and* numpy into the namespace; ``%matplotlib``
+# just matplotlib.
+_MAGIC_IMPLIED_MODULES = {
+    'pylab': ('matplotlib', 'numpy'),
+    'matplotlib': ('matplotlib',),
+}
+
+
+def _pip_install_targets(args: str) -> list[str]:
+    """Best-effort package names from the argument string of a
+    ``pip install`` magic/shell line (``!pip install`` / ``%pip install``)."""
+    targets = []
+    for token in args.split():
+        if token.startswith('-'):  # -q, -U, --upgrade, --index-url=..., etc.
+            continue
+        if token.startswith(('git+', 'http://', 'https://', '.', '/')):
+            continue  # VCS/URL/local installs — no clean package name
+        if token.endswith(('.txt', '.cfg', '.toml')):
+            continue  # -r requirements.txt and friends
+        # Strip extras and version specifiers: ``pkg[extra]>=1.2`` -> ``pkg``.
+        name = re.split(r'[<>=!~\[;]', token, maxsplit=1)[0].strip()
+        if name:
+            targets.append(name)
+    return targets
+
+
+def extract_magic_dependencies(source: str) -> list[dict]:
+    """Extract package dependencies implied by IPython magics/shell escapes,
+    which ``scrub_ipython_magics`` erases before AST parsing.
+
+    Recognises ``%load_ext <ext>`` (the extension is an importable package,
+    e.g. ``watermark``), ``%pylab``/``%matplotlib`` (matplotlib, and numpy for
+    pylab), and ``!pip install``/``%pip install`` targets. Returns records in
+    the same ``{'name', 'asname', 'module'}`` shape as ``extract_notebook_imports``.
+    """
+    found: dict = {}
+
+    def _add(name: str) -> None:
+        found.setdefault(name, {'module': '', 'asname': None, 'name': name})
+
+    for raw in source.splitlines():
+        line = raw.strip()
+        m = re.match(r'%+\s*load_ext\s+(\S+)', line)
+        if m:
+            _add(m.group(1))
+            continue
+        m = re.match(r'%+\s*(pylab|matplotlib)\b', line)
+        if m:
+            for module in _MAGIC_IMPLIED_MODULES[m.group(1)]:
+                _add(module)
+            continue
+        m = re.match(r'[!%]+\s*(?:python[0-9.]*\s+-m\s+)?pip[0-9.]*\s+install\s+(.*)',
+                     line)
+        if m:
+            for pkg in _pip_install_targets(m.group(1)):
+                _add(pkg)
+    return list(found.values())
+
+
 def extract_notebook_imports(notebook) -> list[dict]:
     """Extract the complete set of top-level imports from a notebook.
 
     Parses each code cell independently so one unparseable cell (a malformed
     magic, non-Python content) only costs that cell, never the whole
     notebook's import list. Uses a plain AST walk — imports are pure syntax
-    and need no type inference — and returns dependency records in the shape
-    the containerizer expects (``{'name', 'asname', 'module'}``).
+    and need no type inference — and also recovers dependencies implied by
+    IPython magics (``%load_ext``, ``%pylab``, ``pip install``) that the
+    scrubber strips. Returns dependency records in the shape the containerizer
+    expects (``{'name', 'asname', 'module'}``).
     """
     imports: dict = {}
     for cell in notebook.cells:
@@ -61,10 +123,13 @@ def extract_notebook_imports(notebook) -> list[dict]:
         source = cell.source
         if isinstance(source, list):
             source = '\n'.join(source)
-        source = scrub_ipython_magics(source)
+        # Recover magic-implied deps first; a real ``import`` of the same name
+        # in the AST walk below takes precedence (it carries the true module).
+        for dep in extract_magic_dependencies(source):
+            imports.setdefault(dep['name'], dep)
         try:
             visitor = Visitor()
-            visitor.visit(ast.parse(source))
+            visitor.visit(ast.parse(scrub_ipython_magics(source)))
             imports.update(visitor.imports)
         except SyntaxError as e:
             logger.warning('skipping unparseable cell during import '
