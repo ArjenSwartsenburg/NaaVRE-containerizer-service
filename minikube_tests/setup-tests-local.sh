@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
       shift # past argument
       ;;
     -c |--chart-file)
-      CHART_FILE="$2"
+      EXTRA_CHART_FILE="$2"
       shift # past argument
       shift # past value
       ;;
@@ -92,9 +92,20 @@ if [[ -n "$VALUES_FILE" ]]; then
   echo "Using values file: $VALUES_FILE"
 fi
 
+# If $EXTRA_CHART_FILE exists, set its absolute path
+if [[ -f "$EXTRA_CHART_FILE" ]]; then
+  EXTRA_CHART_FILE=$(realpath "$EXTRA_CHART_FILE")
+  echo "Using chart file: $EXTRA_CHART_FILE"
+fi
 
 # Get only the last part of the current directory
 CURRENT_DIR=$(basename "$(pwd)")
+
+if [ "$CURRENT_DIR" != "NaaVRE-helm" ]; then
+  RUNS_FROM_NAAAVRE_HELM="false"
+else
+  RUNS_FROM_NAAAVRE_HELM="true"
+fi
 
 # Variables
 context="minikube"
@@ -151,7 +162,7 @@ setup_minikube(){
 }
 
 deploy_naavre(){
-  if [ "$CURRENT_DIR" != "NaaVRE-helm" ]; then
+  if [ "$RUNS_FROM_NAAAVRE_HELM" == "false" ]; then
     if [ "$DELETE_NAAAVRE_DIR" == "true" ]; then
       rm -rf NaaVRE-helm
     fi
@@ -159,25 +170,21 @@ deploy_naavre(){
     cd NaaVRE-helm
     cp "../$VALUES_FILE" .
     cp "../$VALUES_FILE" secrets-minikube.yaml
-  else
+  elif [ "$RUNS_FROM_NAAAVRE_HELM" == "true" ]; then
     cp "$VALUES_FILE" secrets-minikube.yaml
   fi
-  if [ -n "$CHART_FILE" ]; then
-    CURRENT_DIR=$(basename "$(pwd)")
-    if [ "$CURRENT_DIR" != "NaaVRE-helm" ]; then
-      echo "Changing directory to NaaVRE-helm to use custom chart file"
-      cd NaaVRE-helm
-    else
-      CHART_FILE_IN_PLACE="true"
-      cp "../$CHART_FILE" ./naavre/Chart.yaml
-    fi
-    echo "Using custom chart file: $CHART_FILE"
-    if [ -z "$CHART_FILE_IN_PLACE" ]; then
-      cp "$CHART_FILE" naavre/Chart.yaml
-     fi
-    cd naavre && helm dependency update && cd ..
-  fi
 
+  # if EXTRA_CHART_FILE is provided, merge with naavre/chart
+  if [ -f "$EXTRA_CHART_FILE" ]; then
+    echo "Merging $EXTRA_CHART_FILE with naavre/Chart.yaml"
+    while IFS=$'\t' read -r dep_name dep_version; do
+      export DEP_NAME="$dep_name"
+      export DEP_VERSION="$dep_version"
+      echo "Processing dependency: $DEP_NAME with version $DEP_VERSION"
+      yq -i '(.dependencies[] | select(.name == strenv(DEP_NAME) ) | .version) = strenv(DEP_VERSION)' naavre/Chart.yaml
+    done < <(yq -r '.dependencies[] | [.name, .version] | @tsv' "$EXTRA_CHART_FILE")
+  fi
+  cd naavre && helm dependency update && cd ../
   # Add the third-party Helm repos
   if [ "$DEPLOY_NAAAVRE" == "true" ]; then
     ./deploy.sh repo-add
@@ -210,7 +217,7 @@ deploy_naavre(){
       echo "Helm installation failed"
       exit 1
   fi
-  if [ "$CURRENT_DIR" != "NaaVRE-helm" ]; then
+  if [ "$RUNS_FROM_NAAAVRE_HELM" == "false" ]; then
     cd ../
   fi
 }
@@ -557,11 +564,18 @@ if [ -f "dev.env" ]; then
   source dev.env
 fi
 
+if [ "$RUNS_FROM_NAAAVRE_HELM" == "true" ]; then
+  CONFIG_JSON_PATH="../configuration.json"
+elif [ "$RUNS_FROM_NAAAVRE_HELM" == "false" ]; then
+  CONFIG_JSON_PATH="configuration.json"
+fi
+
+cat $CONFIG_JSON_PATH
+
 # if configuration.json exists add the values, else skip
-if [ -f "../configuration.json" ]; then
-  cp "../configuration.json" .
+if [ -f "$CONFIG_JSON_PATH" ]; then
   export VIRTUAL_LAB_NAME="${VIRTUAL_LAB_NAME:-openlab}"
-  jq --arg token "$ARGO_TOKEN" --arg vl "$VIRTUAL_LAB_NAME" '.vl_configurations |= map(if .name == $vl then .wf_engine_config.access_token = $token else . end)' configuration.json > tmp.json && mv tmp.json minikube_configuration.json
+  jq --arg token "$ARGO_TOKEN" --arg vl "$VIRTUAL_LAB_NAME" '.vl_configurations |= map(if .name == $vl then .wf_engine_config.access_token = $token else . end)' $CONFIG_JSON_PATH > tmp.json && mv tmp.json minikube_configuration.json
   # Set namespace in minikube_configuration.json in the openlab
   jq --arg namespace "$namespace" --arg vl "$VIRTUAL_LAB_NAME" '.vl_configurations |= map(if .name == $vl then .wf_engine_config.namespace = $namespace else . end)' minikube_configuration.json > tmp.json && mv tmp.json minikube_configuration.json
   # Set service_account in minikube_configuration.json in the openlab
@@ -594,6 +608,10 @@ if [ -f "$CONFIG_FILE_URL" ]; then
 else
   export CONFIG_FILE_URL="minikube_configuration.json"
 fi
+# Set $CONFIG_FILE_URL absolute path
+CONFIG_FILE_URL=$(realpath "$CONFIG_FILE_URL")
+echo "Configuration file URL: $CONFIG_FILE_URL"
+cat $CONFIG_FILE_URL
 }
 
 test_github_token(){

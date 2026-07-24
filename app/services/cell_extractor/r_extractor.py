@@ -10,9 +10,9 @@ from .extractor import Extractor
 from .parseR.parsing import parse_text
 from .r_visitors.config_extractor import ConfigExtractor
 from .r_visitors.defined_extractor import DefinedExtractor
-from .r_visitors.undefined_extractor import UndefinedExtractor
 from .r_visitors.names_extractor import NamesExtractor
 from .r_visitors.prefixed_var_extractor import PrefixedVarExtractor
+from .r_visitors.undefined_extractor import UndefinedExtractor
 from ...models.notebook_data import NotebookData
 
 # Create an R environment
@@ -114,14 +114,15 @@ class RExtractor(Extractor):
     notebook_secrets: list[dict]
     undefined: dict
 
-    def __init__(self, notebook_data: NotebookData, base_image_tags_url: str):
+    def __init__(self, notebook_data: NotebookData, base_image_tags_url: str,
+                 built_in_function_names: list[str]):
         notebook = notebook_data.notebook
         sources = [nbcell.source for nbcell in notebook.cells if
                    nbcell.cell_type == 'code' and len(nbcell.source) > 0]
-        self.notebook_names = self.__extract_cell_names(
+        self.cell_vars = self.__extract_cell_names(
             '\n'.join(sources)
         )
-
+        self.built_in_function_names = built_in_function_names
         self.imports = self.__extract_imports(sources)
         self.notebook_configurations = (
             self.__extract_configurations(sources))
@@ -213,9 +214,9 @@ class RExtractor(Extractor):
                 if variable_name.startswith(prefix + '_'):
                     variable_type = None
                     variable_value = None
-                    if variable_name in self.notebook_names:
+                    if variable_name in self.cell_vars:
                         variable_type = (
-                            self.notebook_names)[variable_name]['type']
+                            self.cell_vars)[variable_name]['type']
                     if prefix != 'secret':
                         variable_value = variable_names[variable_name]['value']
                     extracted_var = {
@@ -269,18 +270,28 @@ class RExtractor(Extractor):
     def __extract_cell_undefined(self, cell_source) -> dict:
         tree = parse_text(cell_source)
         visitor = DefinedExtractor()
-        defs, scoped = visitor.visit(tree)
-        visitor = UndefinedExtractor(defs, scoped)
-        undefs = visitor.visit(tree)
-        undef_vars = {
-            name: {
+        function_names = self.built_in_function_names
+        defined_cell_vars, scoped = visitor.visit(tree)
+        visitor = UndefinedExtractor(
+            defined_notebook_vars=defined_cell_vars,
+            scoped=scoped,
+            built_in_function_names=function_names,
+            cell_vars=self.cell_vars
+        )
+        undefined_notebook_vars = visitor.visit(tree)
+        # Build dictionary of undefined variables with their types
+        undefined_cell_vars = {}
+        for name in undefined_notebook_vars:
+            var_type = None
+            if name in self.cell_vars:
+                var_type = self.cell_vars[name]['type']
+
+            undefined_cell_vars[name] = {
                 'name': name,
-                'type': self.notebook_names[name]['type']
-                if name in self.notebook_names else None,
+                'type': var_type,
             }
-            for name in undefs
-        }
-        return undef_vars
+
+        return undefined_cell_vars
 
     def get_cell_params(self) -> list[dict]:
         param = {}

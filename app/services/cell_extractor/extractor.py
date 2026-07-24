@@ -8,7 +8,8 @@ from slugify import slugify
 from app.models.notebook_data import NotebookData
 from app.models.workflow_cell import Cell
 from app.services.base_image.base_image_tags import BaseImageTags
-from app.services.cell_extractor.cell_sanity_checker import CellSanityChecker
+from app.services.cell_extractor.cell_sanity_checker import \
+    check_cell_title
 
 
 class Extractor(abc.ABC):
@@ -43,7 +44,10 @@ class Extractor(abc.ABC):
 
     def get_cell(self) -> Cell:
         title = self.cell_source.partition('\n')[0].strip()
-        title = slugify(title) if title and title[0] == "#" else "Untitled"
+        if not title or title[0] != "#":
+            title = "Untitled"
+        check_cell_title(title)
+        title = slugify(title)
         title += '-' + slugify(self.user_name)
         title = title.lower()
         base_image_tags = BaseImageTags(self.base_image_tags_url)
@@ -68,8 +72,6 @@ class Extractor(abc.ABC):
             'original_source': self.clean_code()
         }
         cell = Cell.model_validate(cell_dict)
-        cell_checks = CellSanityChecker(cell)
-        cell_checks.run_all()
         return cell
 
     def clean_code(self):

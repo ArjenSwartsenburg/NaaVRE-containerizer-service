@@ -16,7 +16,7 @@ def get_module_name_mapping(module_mapping_url: str = None):
                          module_mapping_url) from e
 
 
-class Containerizer():
+class Containerizer:
 
     def __init__(self, cell: Cell, module_mapping_url=None):
         self.cell = cell

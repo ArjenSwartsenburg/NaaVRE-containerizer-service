@@ -1,0 +1,23 @@
+{
+  "title": "bug-header-empty-cell-user",
+  "base_container_image": {
+    "build": "ghcr.io/naavre/flavors/naavre-fl-vanilla-cell-build:latest",
+    "runtime": "ghcr.io/naavre/flavors/naavre-fl-vanilla-cell-runtime:latest"
+  },
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "foo",
+      "type": "str"
+    }
+  ],
+  "params": [],
+  "secrets": [],
+  "confs": [],
+  "dependencies": [],
+  "kernel": "ipython",
+  "original_source": "",
+  "source_url": null,
+  "container_image": null,
+  "description": null
+}

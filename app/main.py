@@ -8,6 +8,7 @@ from typing import Annotated
 from urllib.parse import urlparse
 
 import cachetools.func
+import jsonschema
 import jwt
 import requests
 import uvicorn
@@ -52,20 +53,20 @@ def load_configuration(source):
         with open(source, "r", encoding="utf-8") as file:
             data_dict = json.load(file)
         file.close()
+        if not data_dict:
+            raise Exception('Configuration data_dict is empty')
         return data_dict
-
     else:
-        raise Exception('Invalid configuration source')
+        raise Exception('Configuration source: ' + source + ' not found')
 
 
-config_file = os.getenv('CONFIG_FILE_URL', 'https://raw.githubusercontent.com/'
-                                           'naavrehub/'
-                                           'NaaVRE-containerizer-service/'
-                                           'main/conf.json')
+config_file = os.getenv('CONFIG_FILE_URL', 'configuration.json')
 
 conf = None
+config_path = None
 if os.path.exists(config_file):
     conf = load_configuration(config_file)
+    print("Found config_file: "+config_file)
 else:
     # Start going up the directory tree until we find the configuration file
     current_dir = os.getcwd()
@@ -75,8 +76,15 @@ else:
                                              'configuration.json'))
         if os.path.exists(config_path):
             conf = load_configuration(config_path)
+            print("Found config_file: " + config_file)
             break
         current_dir = os.path.dirname(current_dir)
+
+print("config_file: "+config_file)
+# Print contents of conf for debugging
+with open(config_file, "r", encoding="utf-8") as file:
+    print(file.read())
+
 print('configuration loaded: ', conf)
 settings = Settings(config=conf)
 
@@ -183,28 +191,35 @@ def _get_extractor(extractor_payload: ExtractorPayload):
         raise HTTPException(status_code=400,
                             detail='module_mapping_url for: ' +
                             extractor_payload.virtual_lab + ' not found')
-    if notebook.cells[cell_index].cell_type != 'code':
-        # dummy extractor for non-code cells (e.g. markdown)
-        extractor = DummyExtractor(extractor_payload.data,
-                                   vl_settings.base_image_tags_url)
-    elif _is_r_kernel(kernel):
-        extractor = RHeaderExtractor(extractor_payload.data,
-                                     vl_settings.base_image_tags_url)
-    elif _is_python_kernel(kernel):
-        extractor = PyHeaderExtractor(extractor_payload.data,
-                                      vl_settings.base_image_tags_url)
-    if not extractor.is_complete():
-        if _is_r_kernel(kernel):
-            code_extractor = RExtractor(extractor_payload.data,
-                                        vl_settings.base_image_tags_url)
-        elif _is_python_kernel(kernel):
-            code_extractor = PyExtractor(extractor_payload.data,
+    try:
+        if notebook.cells[cell_index].cell_type != 'code':
+            # dummy extractor for non-code cells (e.g. markdown)
+            extractor = DummyExtractor(extractor_payload.data,
+                                       vl_settings.base_image_tags_url)
+        elif _is_r_kernel(kernel):
+            extractor = RHeaderExtractor(extractor_payload.data,
                                          vl_settings.base_image_tags_url)
-        else:
-            raise HTTPException(status_code=400,
-                                detail='Unsupported kernel: ' + kernel)
-        extractor.add_missing_values(code_extractor)
-    return extractor
+        elif _is_python_kernel(kernel):
+            extractor = PyHeaderExtractor(extractor_payload.data,
+                                          vl_settings.base_image_tags_url)
+        if not extractor.is_complete():
+            if _is_r_kernel(kernel):
+                built_in_function_names = (
+                    settings.get_built_in_function_names())
+                code_extractor = RExtractor(extractor_payload.data,
+                                            vl_settings.base_image_tags_url,
+                                            built_in_function_names)
+            elif _is_python_kernel(kernel):
+                code_extractor = PyExtractor(extractor_payload.data,
+                                             vl_settings.base_image_tags_url)
+            else:
+                raise HTTPException(status_code=400,
+                                    detail='Unsupported kernel: ' + kernel)
+            extractor.add_missing_values(code_extractor)
+        return extractor
+    except (ValueError, jsonschema.ValidationError) as e:
+        raise HTTPException(status_code=422,
+                            detail='Error extracting cell: ' + str(e))
 
 
 def _query_github_job_id(workflow_id, gh_service, wf_creation_utc):
@@ -283,8 +298,12 @@ def extract_notebook(
             if _is_r_kernel(kernel):
                 extractor = RHeaderExtractor(cell_data, base_image_tags_url='')
                 if not extractor.is_complete():
-                    code_extractor = RExtractor(cell_data,
-                                                base_image_tags_url='')
+                    code_extractor = RExtractor(
+                        cell_data,
+                        base_image_tags_url='',
+                        built_in_function_names=(
+                            settings.get_built_in_function_names()),
+                    )
                     extractor.add_missing_values(code_extractor)
                 _add_dependencies(extractor.cell_dependencies)
             elif _is_python_kernel(kernel):

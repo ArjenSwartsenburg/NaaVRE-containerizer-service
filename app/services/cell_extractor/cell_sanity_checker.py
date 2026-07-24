@@ -1,21 +1,22 @@
 import re
-from abc import ABC
-
-from app.models.workflow_cell import Cell
-from app.utils.sanity_checker import SanityChecker
 
 
-class CellSanityChecker(SanityChecker, ABC):
-
-    def __init__(self, cell: Cell):
-        self.cell = cell
-
-    def check_title(self):
-        """
-        Example check: ensure notebook title does not start with a digit.
-        """
-        title = self.cell.title
-        pattern = re.compile(r'^\d')
-        if pattern.match(title):
-            raise ValueError("Cell title is: '" + title +
-                             "'. It should not start with a digit.")
+def check_cell_title(title):
+    """
+    Example check: ensure notebook title does not start with a digit.
+    """
+    # Title should only start letters
+    # Remove first '#' from title
+    if title[0] == '#':
+        title = title[1:]
+    title = title.strip()
+    # Title should start only with letters
+    if re.match(r'^[^a-zA-Z]', title):
+        raise ValueError('Title: ' + title + ' is not a valid. Title should '
+                                             'start with a letter.')
+    # Tile should not contain special characters
+    if re.search(r'[^\w\s.:-]', title):
+        raise ValueError(
+            'Title: ' + title + ' is not a valid. Title should not'
+                                ' contain special characters except'
+                                ' for - , . , _ and :')

@@ -1,0 +1,6 @@
+{
+  "extract_cell":{
+    "code": 422,
+    "message": "Error extracting cell: 'matplotlib' is not of type 'object'\\n\\nFailed validating 'type' in schema[0]:\\n    {'title': 'Full param variable description',\\n     'type': 'object',\\n     'additionalProperties': False,\\n     'properties': {'name': {'type': 'string'},\\n                    'asname': {'type': ['string', 'null']},\\n                    'module': {'type': 'string'}},\\n     'required': ['name']}\\n\\nOn instance:\\n    'matplotlib'"
+  }
+}

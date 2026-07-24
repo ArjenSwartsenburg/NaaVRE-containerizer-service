@@ -1,0 +1,67 @@
+[
+  {
+    "name": "id",
+    "type": "str",
+    "value": "000"
+  },
+  {
+    "name": "var_string",
+    "type": "str",
+    "value": "var_string value"
+  },
+  {
+    "name": "var_string_with_comment",
+    "type": "str",
+    "value": "var_string value"
+  },
+  {
+    "name": "var_int",
+    "type": "int",
+    "value": "1"
+  },
+  {
+    "name": "var_float",
+    "type": "float",
+    "value": "1.1"
+  },
+  {
+    "name": "var_list_int",
+    "type": "list",
+    "value": "[1, 2, 3]"
+  },
+  {
+    "name": "var_list_str",
+    "type": "list",
+    "value": "[\"list_str\", \"space in elem\", \"3\"]"
+  },
+      {
+      "value": "1.1",
+      "name": "param_float",
+      "type": "float"
+    },
+    {
+      "value": "1",
+      "name": "param_int",
+      "type": "int"
+    },
+    {
+      "value": "[1, 2, 3]",
+      "name": "param_list_int",
+      "type": "list"
+    },
+    {
+      "value": "[\"list_str\", \"space in elem\", \"3\"]",
+      "name": "param_list_str",
+      "type": "list"
+    },
+    {
+      "value": "param_string value",
+      "name": "param_string",
+      "type": "str"
+    },
+    {
+      "value": "param_string value",
+      "name": "param_string_with_comment",
+      "type": "str"
+    }
+]

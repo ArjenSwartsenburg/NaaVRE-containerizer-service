@@ -1,0 +1,17 @@
+[
+  {
+    "name": "id",
+    "type": "str",
+    "value": "000"
+  },
+  {
+    "name": "foo",
+    "type": "str",
+    "value": "bar"
+  },
+  {
+    "name": "param_abc",
+    "type": "str",
+    "value": "abc"
+  }
+]

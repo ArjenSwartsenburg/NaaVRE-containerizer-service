@@ -1,0 +1,44 @@
+{
+  "title": "untitled-user",
+  "base_container_image": {
+    "build": "ghcr.io/naavre/flavors/naavre-fl-vanilla-cell-build:latest",
+    "runtime": "ghcr.io/naavre/flavors/naavre-fl-vanilla-cell-runtime:latest"
+  },
+  "inputs": [
+    {
+      "name": "dataframe_file",
+      "type": "str"
+    }
+  ],
+  "outputs": [],
+  "params": [],
+  "secrets": [],
+  "confs": [],
+  "dependencies": [
+    {
+      "name": "dplyr",
+      "asname": "",
+      "module": ""
+    },
+    {
+      "name": "readr",
+      "asname": "",
+      "module": ""
+    },
+    {
+      "name": "tibble",
+      "asname": "",
+      "module": ""
+    },
+    {
+      "name": "base",
+      "asname": "",
+      "module": ""
+    }
+  ],
+  "kernel": "IRkernel",
+  "original_source": "summary <- readRDS(dataframe_file) %>% summarise(across(everything(), sum, .names = \"{.col}_total\"))\nprint(summary)",
+  "source_url": null,
+  "container_image": null,
+  "description": null
+}

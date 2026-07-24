@@ -19,6 +19,9 @@ def get_random_test_case(cells_dirs):
     cell_dir = cells_dirs[random_index]
 
     cell_path = os.path.join(cell_dir, 'cell.json')
+    while cell_path is None or not os.path.exists(cell_path):
+        random_index = random.randint(0, len(cells_dirs) - 1)
+        cell_dir = cells_dirs[random_index]
     with open(cell_path) as f:
         print('Testing containerize for cell: ' + cell_path)
         cell = json.load(f)

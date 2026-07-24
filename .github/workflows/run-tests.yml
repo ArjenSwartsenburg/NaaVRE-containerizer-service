@@ -45,7 +45,7 @@ jobs:
         chart:
           - minikube_tests/charts/argo-workflows-0.33.1-Chart.yaml
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: conda-incubator/setup-miniconda@v4
         with:
@@ -58,7 +58,7 @@ jobs:
           use-mamba: true
 
       - name: Cache Conda environment
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ env.CONDA }}/envs
           key: conda-environment-${{ runner.os }}-${{ hashFiles('environment.yaml') }}
@@ -79,14 +79,20 @@ jobs:
       - name: Run setup-tests.sh
         shell: bash -l {0}
         run: |
+          wget https://raw.githubusercontent.com/NaaVRE/NaaVRE-helm/refs/heads/main/minikube_tests/setup-tests.sh
+          chmod +x setup-tests.sh
+          chmod +x minikube_tests/setup-tests-local.sh
+          mv setup-tests.sh minikube_tests/
           ./minikube_tests/setup-tests-local.sh -f minikube_tests/values-deploy-naavre-containerizer-service-minikube-github.yaml -d -n -u -p -v -c "${{ matrix.chart }}"
-
-      - name: Install pytest
-        run: pip install pytest
+          pwd 
+          ls -lah 
+          ls -lah minikube_configuration.json
+          cat minikube_configuration.json
 
       - name: pytest
         shell: bash -l {0}
         run: |
           conda activate naavre-containerizer-service
           pip install pytest
+          conda install conda-forge::r-optparse r::r-jsonlite -y 
           pytest ${{ inputs.test }} -s --ignore=docker --ignore=cypress --no-header --log-cli-level=DEBUG -vv --tb=long ${{ inputs.pytest_extra_options }}

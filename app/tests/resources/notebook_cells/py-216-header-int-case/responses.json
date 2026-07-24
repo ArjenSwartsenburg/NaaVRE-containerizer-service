@@ -1,0 +1,6 @@
+{
+  "extract_cell":{
+    "code": 422,
+    "message": "Error extracting cell: 'integer' is not one of ['Integer', 'Float', 'String', 'List']\\n\\nFailed validating 'enum' in schema[1]['patternProperties']['^.*$']:\\n    {'title': 'Variable type',\\n     'type': 'string',\\n     'enum': ['Integer', 'Float', 'String', 'List']}\\n\\nOn instance['foo']:\\n    'integer'"
+  }
+}

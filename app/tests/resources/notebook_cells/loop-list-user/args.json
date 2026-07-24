@@ -1,0 +1,12 @@
+[
+  {
+    "name": "id",
+    "type": "str",
+    "value": "000"
+  },
+  {
+    "name": "list_of_paths",
+    "type": "list",
+    "value": "[\"/path/to/file1.txt\", \"/path/to/file2.txt\", \"/path/to/file3.txt\"]"
+  }
+]

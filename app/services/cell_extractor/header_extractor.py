@@ -54,7 +54,7 @@ class HeaderExtractor(Extractor):
             (r"^(?:.*\n)*"
              r"\s*#\s*---\s*\n"
              r"((?:\s*#.*\n)+?)"
-             r"\s*#\s*\.\.\.\s*\n"
+             r"\s*#\s*\.\.\.\s*"
              ),
             re.MULTILINE)
         self.schema = self._load_schema()

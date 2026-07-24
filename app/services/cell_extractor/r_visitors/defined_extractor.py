@@ -4,13 +4,13 @@ from app.services.cell_extractor.r_visitors.r_visitor import RVisitor
 
 class DefinedExtractor(RVisitor):
     def __init__(self):
-        self.defs = set()
+        self.defined_vars = set()
         self.scoped = set()
         self.scope = False
 
     def visitProg(self, ctx: RParser.ProgContext):
         self.visitChildren(ctx)
-        return self.defs, self.scoped
+        return self.defined_vars, self.scoped
 
     def visitAssign(self, ctx: RParser.AssignContext):
         # Get the identifier and the assigned value of the expr and add to dict
@@ -18,7 +18,7 @@ class DefinedExtractor(RVisitor):
         if id is None:
             return None
         if id not in self.scoped and not self.scope:
-            self.defs.add(id)
+            self.defined_vars.add(id)
         elif self.scope:
             self.scoped.add(id)
         self.visit(ctx.expr(1))

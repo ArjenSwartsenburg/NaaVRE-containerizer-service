@@ -1,0 +1,6 @@
+{
+  "extract_cell":{
+    "code": 422,
+    "message": "Error extracting cell: {'par_something': {'type': 'String', 'default_value': 'my default value'}} is not valid under any of the given schemas\\n\\nFailed validating 'anyOf' in schema['properties']['NaaVRE']['properties']['cell']['properties']['params']['items']:\\n    {'title': 'Param element',\\n     'description': 'description param variable elements',\\n     'anyOf': [{'$ref': '#/definitions/ElementVarName'},\\n               {'$ref': '#/definitions/ElementVarNameType'},\\n               {'$ref': '#/definitions/ParamElementVarDict'}]}\\n\\nOn instance['NaaVRE']['cell']['params'][0]:\\n    {'par_something': {'type': 'String',\\n                       'default_value': 'my default value'}}"
+  }
+}

@@ -112,10 +112,16 @@ class GithubService(GitRepository, ABC):
                 main_ref.edit(sha=new_commit.sha)
                 commit_sha = new_commit.sha
             except github.GithubException as e:
-                if "not a fast-forward" in str(e):
+                # Another request may have advanced main in the meantime.
+                # Return current HEAD so downstream calls still have a valid
+                # ref.
+                commit_sha = self.gh_repository.get_branch("main").commit.sha
+                error_message = str(e).lower()
+                if ("not a fast-forward" not in error_message and
+                        "not a fast forward" not in error_message):
                     raise Exception(
                         "Update failed: not a fast-forward. Ensure the branch "
-                        "is up-to-date.")
+                        "is up-to-date.") from e
         logger.debug('Content updated: ' + str(content_updated))
         return {"content_updated": content_updated, 'commit_sha': commit_sha}
 
@@ -255,7 +261,10 @@ class GithubService(GitRepository, ABC):
         found_env = False
         found_task = False
         try:
-            contents = self.gh_repository.get_contents(path, ref=ref)
+            if ref:
+                contents = self.gh_repository.get_contents(path, ref=ref)
+            else:
+                contents = self.gh_repository.get_contents(path)
             for content in contents:
                 if content.name == 'Dockerfile':
                     found_docker = True

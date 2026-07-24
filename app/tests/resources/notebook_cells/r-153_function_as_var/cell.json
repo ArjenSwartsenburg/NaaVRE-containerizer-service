@@ -1,0 +1,24 @@
+{
+  "title": "untitled-user",
+  "base_container_image": {
+    "build": "ghcr.io/naavre/flavors/naavre-fl-vanilla-cell-build:latest",
+    "runtime": "ghcr.io/naavre/flavors/naavre-fl-vanilla-cell-runtime:latest"
+  },
+  "inputs": [
+    {
+      "name": "sum",
+      "type": "int",
+      "value": "3"
+    }
+  ],
+  "outputs": [],
+  "params": [],
+  "secrets": [],
+  "confs": [],
+  "dependencies": [],
+  "kernel": "IRkernel",
+  "original_source": "print(sum)",
+  "source_url": null,
+  "container_image": null,
+  "description": null
+}

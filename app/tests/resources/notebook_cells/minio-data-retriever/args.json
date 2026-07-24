@@ -1,0 +1,17 @@
+[
+  {
+    "name": "id",
+    "type": "str",
+    "value": "000"
+  },
+  {
+    "name": "param_data_filename",
+    "type": "str",
+    "value": "Template_MBO_Example_raw.xlsx"
+  },
+  {
+    "name": "param_use_dummy_data",
+    "type": "int",
+    "value": "1"
+  }
+]

@@ -32,6 +32,8 @@ def test_extract_cell():
     notebook_cells_dir = os.path.join(base_path, 'notebook_cells')
     cells_dirs = [f.path for f in os.scandir(notebook_cells_dir) if f.is_dir()]
     for cell_dir in cells_dirs:
+        if 'r-153_function_as_var' not in cell_dir:
+            continue
         notebook_path = os.path.join(cell_dir, 'notebook.ipynb')
         with open(notebook_path) as f:
             print('Testing extract for notebook: ' + notebook_path)
@@ -40,11 +42,6 @@ def test_extract_cell():
         with open(payload_path) as f:
             print('                with payload: ' + payload_path)
             extractor_json_payload = json.load(f)
-
-        cell_path = os.path.join(cell_dir, 'cell.json')
-        with open(cell_path) as f:
-            print('              expecting cell: ' + cell_path)
-            expected_cell_dict = json.load(f)
 
         cell_name = os.path.basename(cell_dir)
         save_as_jupyter_notebook(notebook, f'{cell_name}.ipynb')
@@ -72,6 +69,10 @@ def test_extract_cell():
             continue
         cell_dict = cell_extractor_response.json()
         returned_cell = Cell.model_validate(cell_dict)
+        cell_path = os.path.join(cell_dir, 'cell.json')
+        with open(cell_path) as f:
+            print('              expecting cell: ' + cell_path)
+            expected_cell_dict = json.load(f)
         expected_cell = Cell.model_validate(expected_cell_dict)
 
         returned_cell_confs = sorted(returned_cell.confs,

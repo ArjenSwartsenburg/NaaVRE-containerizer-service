@@ -1,0 +1,6 @@
+{
+  "extract_cell":{
+    "code": 422,
+    "message": "Error extracting cell: None is not of type \\'object\\'\\\\n\\\\nFailed validating \\'type\\' in schema[\\'properties\\'][\\'NaaVRE\\']:\\\\n    {\\'title\\': \\'NaaVRE cell metadata\\',\\\\n     \\'type\\': \\'object\\',\\\\n     \\'additionalProperties\\': False,\\\\n     \\'properties\\': {\\'cell\\': {\\'$ref\\': \\'#/definitions/Cell\\'}},\\\\n     \\'required\\': [\\'cell\\']}\\\\n\\\\nOn instance[\\'NaaVRE\\']:\\\\n    None"
+  }
+}
