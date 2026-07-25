@@ -41,7 +41,8 @@ def _import_names(notebook):
 # --- scrub_ipython_magics -------------------------------------------------
 
 def test_scrub_line_magic_and_shell():
-    src = 'import numpy as np\n%matplotlib inline\n!pip install foo\nx = np.zeros(3)'
+    src = ('import numpy as np\n%matplotlib inline\n'
+           '!pip install foo\nx = np.zeros(3)')
     scrubbed = scrub_ipython_magics(src)
     assert '%matplotlib' not in scrubbed
     assert '!pip' not in scrubbed
@@ -114,7 +115,8 @@ def test_from_imports_use_module_name():
 
 
 def test_relative_imports_excluded():
-    nb = _notebook('from . import helpers\nfrom ..pkg import thing\nimport requests')
+    nb = _notebook('from . import helpers\nfrom ..pkg import thing\n'
+                   'import requests')
     assert _import_names(nb) == {'requests'}
 
 
@@ -138,7 +140,8 @@ def _route(notebook):
     cell = Cell(title='notebook', base_container_image={}, dependencies=deps,
                 kernel='ipython', original_source='')
     routed = PyContainerizer(cell).map_dependencies(deps, MODULE_MAPPING)
-    return sorted(routed['conda_dependencies']), sorted(routed['pip_dependencies'])
+    return (sorted(routed['conda_dependencies']),
+            sorted(routed['pip_dependencies']))
 
 
 def test_unmapped_package_routes_to_pip():
@@ -153,7 +156,8 @@ def test_mapped_package_routes_to_conda_with_renamed_name():
 
 
 def test_stdlib_is_dropped():
-    conda, pip = _route(_notebook('import os\nimport sys\nimport json\nimport requests'))
+    conda, pip = _route(
+        _notebook('import os\nimport sys\nimport json\nimport requests'))
     assert conda == []
     assert pip == ['requests']
 
@@ -185,7 +189,8 @@ def test_build_environment_pins_python_and_renders_deps(monkeypatch):
     env_text = PyContainerizer(cell).build_environment()
     env = yaml.safe_load(env_text)
     conda = env['dependencies']
-    pip = next((d['pip'] for d in conda if isinstance(d, dict) and 'pip' in d), [])
+    pip = next(
+        (d['pip'] for d in conda if isinstance(d, dict) and 'pip' in d), [])
     assert 'python=3.11' in conda      # Python pinned in the generated spec
     assert 'pyyaml' in pip             # yaml -> pyyaml (mapping)
     assert 'matplotlib' in pip         # %matplotlib magic -> matplotlib
@@ -229,7 +234,8 @@ def test_extract_notebook_endpoint_yaml(monkeypatch):
     assert response.status_code == 200, response.text
     env = yaml.safe_load(response.text)
     conda = env.get('dependencies', [])
-    pip = next((d['pip'] for d in conda if isinstance(d, dict) and 'pip' in d), [])
+    pip = next(
+        (d['pip'] for d in conda if isinstance(d, dict) and 'pip' in d), [])
     assert 'python=3.11' in conda       # Python is pinned
     assert 'scikit-learn' in conda      # mapped -> conda
     assert 'neurokit2' in pip           # unmapped -> pip

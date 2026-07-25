@@ -17,7 +17,8 @@ from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.models.containerizer_payload import ContainerizerPayload
-from app.models.extractor_payload import ExtractorPayload, NotebookExtractorPayload
+from app.models.extractor_payload import (ExtractorPayload,
+                                          NotebookExtractorPayload)
 from app.models.notebook_data import NotebookData
 from app.models.workflow_cell import Cell
 from app.models.vl_config import VLConfig
@@ -307,7 +308,8 @@ def extract_notebook(
                     extractor.add_missing_values(code_extractor)
                 _add_dependencies(extractor.cell_dependencies)
             elif _is_python_kernel(kernel):
-                extractor = PyHeaderExtractor(cell_data, base_image_tags_url='')
+                extractor = PyHeaderExtractor(cell_data,
+                                              base_image_tags_url='')
                 _add_dependencies(extractor.cell_dependencies)
             else:
                 logging.debug('Unsupported kernel %s for cell %d, skipping',

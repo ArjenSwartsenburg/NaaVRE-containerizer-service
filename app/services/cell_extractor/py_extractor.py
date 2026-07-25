@@ -79,7 +79,8 @@ def extract_magic_dependencies(source: str) -> list[dict]:
     Recognises ``%load_ext <ext>`` (the extension is an importable package,
     e.g. ``watermark``), ``%pylab``/``%matplotlib`` (matplotlib, and numpy for
     pylab), and ``!pip install``/``%pip install`` targets. Returns records in
-    the same ``{'name', 'asname', 'module'}`` shape as ``extract_notebook_imports``.
+    the same ``{'name', 'asname', 'module'}`` shape as
+    ``extract_notebook_imports``.
     """
     found: dict = {}
 
@@ -97,7 +98,8 @@ def extract_magic_dependencies(source: str) -> list[dict]:
             for module in _MAGIC_IMPLIED_MODULES[m.group(1)]:
                 _add(module)
             continue
-        m = re.match(r'[!%]+\s*(?:python[0-9.]*\s+-m\s+)?pip[0-9.]*\s+install\s+(.*)',
+        m = re.match(r'[!%]+\s*(?:python[0-9.]*\s+-m\s+)?'
+                     r'pip[0-9.]*\s+install\s+(.*)',
                      line)
         if m:
             for pkg in _pip_install_targets(m.group(1)):

@@ -10,6 +10,15 @@ on:
   schedule:
     - cron: '0 4 5,25 * *'
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: >-
+          Publish the container and helm chart under this version (fork
+          workaround: release events do not trigger workflows here). Publishes
+          even if the integration test matrix fails — check results manually.
+        type: string
+        required: false
+        default: ''
 
 jobs:
   configure-workflow:
@@ -80,22 +89,24 @@ jobs:
 
   call-build-container:
     needs: [ call-pytest ]
+    if: ${{ !cancelled() && (needs.call-pytest.result == 'success' || inputs.release_version != '') }}
     uses: ./.github/workflows/build-container.yml
     permissions:
       contents: read
       packages: write
     with:
       oci_tag: ghcr.io/arjenswartsenburg/naavre-containerizer-service
-      version: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
-      push: ${{ github.event_name == 'release' }}
+      version: ${{ inputs.release_version || (github.ref_type == 'tag' && github.ref_name || github.sha) }}
+      push: ${{ github.event_name == 'release' || inputs.release_version != '' }}
 
   call-helm-chart-release:
     needs: [ call-build-container ]
+    if: ${{ !cancelled() && needs.call-build-container.result == 'success' }}
     uses: ./.github/workflows/helm-chart-release.yml
     permissions:
       contents: read
       packages: write
     with:
       oci_repo: ghcr.io/arjenswartsenburg/charts
-      version: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
-      push: ${{ github.event_name == 'release' }}
+      version: ${{ inputs.release_version || (github.ref_type == 'tag' && github.ref_name || github.sha) }}
+      push: ${{ github.event_name == 'release' || inputs.release_version != '' }}
