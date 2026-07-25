@@ -80,15 +80,21 @@ jobs:
   call-build-container:
     needs: [ call-pytest ]
     uses: ./.github/workflows/build-container.yml
+    permissions:
+      contents: read
+      packages: write
     with:
-      oci_tag: ghcr.io/naavre/naavre-containerizer-service
+      oci_tag: ghcr.io/arjenswartsenburg/naavre-containerizer-service
       version: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
       push: ${{ github.event_name == 'release' }}
 
   call-helm-chart-release:
     needs: [ call-build-container ]
     uses: ./.github/workflows/helm-chart-release.yml
+    permissions:
+      contents: read
+      packages: write
     with:
-      oci_repo: ghcr.io/naavre/charts
+      oci_repo: ghcr.io/arjenswartsenburg/charts
       version: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
       push: ${{ github.event_name == 'release' }}
