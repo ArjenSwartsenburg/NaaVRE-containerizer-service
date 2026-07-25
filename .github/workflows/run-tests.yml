@@ -39,6 +39,9 @@ env:
 jobs:
   test-minikube-script:
     runs-on: ${{ inputs.runs-on }}
+    # The minikube deploy + single test normally takes ~10 minutes; without a
+    # cap, one hung test blocks dependent publish jobs for GitHub's 6h default.
+    timeout-minutes: 25
     strategy:
       fail-fast: true
       matrix:
