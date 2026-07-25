@@ -9,6 +9,7 @@ on:
       - '**'
   schedule:
     - cron: '0 4 5,25 * *'
+  workflow_dispatch:
 
 jobs:
   configure-workflow:
