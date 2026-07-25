@@ -30,7 +30,8 @@ WORKDIR /code
 
 COPY ./app /code/app
 
-ENV APP_PORT=8001
-
-CMD fastapi run app/main.py --port ${APP_PORT}
+# Exec-form CMD with an absolute path: the bash --login SHELL above sources
+# /etc/profile, which resets PATH and would make a shell-form `fastapi` exit
+# 127. Port 8000 is what the helm chart's service and probes expect.
+CMD ["/venv/bin/fastapi", "run", "app/main.py", "--port", "8000"]
 # CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--log-level", "trace"]
