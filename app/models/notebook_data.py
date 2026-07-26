@@ -17,8 +17,19 @@ class NotebookData(BaseModel):
 
     def __init__(self, **data):
         super().__init__(**data)
+        self.normalize_kernel()
         if not self.base_image_name:
             self.set_base_image_name()
+
+    def normalize_kernel(self):
+        # Canonicalize kernelspec names ('python3', 'ir', ...) to the values
+        # the Cell model's kernel Literal accepts, mirroring the
+        # normalization /extract_notebook already does.
+        kl = self.kernel.lower()
+        if 'python' in kl or kl == 'ipython':
+            self.kernel = 'ipython'
+        elif kl in ('r', 'irkernel') or kl.startswith('ir'):
+            self.kernel = 'IRkernel'
 
     def set_user_name(self, user_name: str):
         self.user_name = user_name
