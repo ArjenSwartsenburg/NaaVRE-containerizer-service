@@ -7,7 +7,9 @@ ADD "{{ environment_url }}" /tmp/env.tar.gz
 RUN mkdir /venv && \
     tar xzf /tmp/env.tar.gz -C /venv && \
     rm /tmp/env.tar.gz
-RUN /venv/bin/conda-unpack
+# Invoke with the env's own interpreter: conda-unpack's `/usr/bin/env python`
+# shebang finds nothing on PATH here (no activated env in this branch).
+RUN /venv/bin/python /venv/bin/conda-unpack
 {% else %}
 COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yaml .
 RUN micromamba install -y -n venv -f environment.yaml
