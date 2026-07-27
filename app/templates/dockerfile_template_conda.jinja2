@@ -1,8 +1,10 @@
 FROM {{ base_image.build }} AS build
 {% if environment_url %}
 USER root
+# ADD fetches the URL natively in BuildKit: cell-build base images are
+# minimal and ship no wget/curl.
+ADD "{{ environment_url }}" /tmp/env.tar.gz
 RUN mkdir /venv && \
-    wget -qO /tmp/env.tar.gz "{{ environment_url }}" && \
     tar xzf /tmp/env.tar.gz -C /venv && \
     rm /tmp/env.tar.gz
 RUN /venv/bin/conda-unpack

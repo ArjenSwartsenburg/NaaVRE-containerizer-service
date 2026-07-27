@@ -41,6 +41,6 @@ def test_dockerfile_with_environment_url_skips_micromamba():
     dockerfile = containerizer.build_docker(
         environment_url=payload.environment_url)
     assert 'micromamba install' not in dockerfile
-    assert 'wget -qO /tmp/env.tar.gz' in dockerfile
-    assert payload.environment_url in dockerfile
+    assert f'ADD "{payload.environment_url}" /tmp/env.tar.gz' in dockerfile
+    assert 'tar xzf /tmp/env.tar.gz -C /venv' in dockerfile
     assert '/venv/bin/conda-unpack' in dockerfile
